@@ -18,8 +18,26 @@ const app = express();
 app.use(helmet());
 
 // CORS configuration
+const allowedOrigins = config.cors.origin;
+console.log('🔧 CORS Configuration:', {
+  allowedOrigins,
+  type: Array.isArray(allowedOrigins) ? 'array' : typeof allowedOrigins,
+  length: Array.isArray(allowedOrigins) ? allowedOrigins.length : 'N/A'
+});
+
 app.use(cors({
-  origin: config.cors.origin,
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Check if the origin is in the allowed list
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      // Don't throw error, just deny the CORS request
+      callback(null, false);
+    }
+  },
   credentials: config.cors.credentials,
 }));
 
