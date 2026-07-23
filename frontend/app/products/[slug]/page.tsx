@@ -107,18 +107,20 @@ export default async function ProductDetailPage({ params }: Params) {
             {product.featured && (
               <Badge className="bg-amber-100 text-amber-700">Featured</Badge>
             )}
-            <Badge
-              variant="outline"
-              className={
-                product.availability === 'in-stock'
-                  ? 'border-emerald-300 text-emerald-700'
-                  : product.availability === 'made-to-order'
-                  ? 'border-amber-300 text-amber-700'
-                  : 'border-red-300 text-red-700'
-              }
-            >
-              {product.availability.replace('-', ' ')}
-            </Badge>
+            {product.availability && typeof product.availability === 'string' && (
+              <Badge
+                variant="outline"
+                className={
+                  product.availability === 'in-stock'
+                    ? 'border-emerald-300 text-emerald-700'
+                    : product.availability === 'made-to-order'
+                    ? 'border-amber-300 text-amber-700'
+                    : 'border-red-300 text-red-700'
+                }
+              >
+                {product.availability.replace('-', ' ')}
+              </Badge>
+            )}
           </div>
 
           <h1 className="mt-4 text-4xl font-semibold text-stone-900 sm:text-5xl">
