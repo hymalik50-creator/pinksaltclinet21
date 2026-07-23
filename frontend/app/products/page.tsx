@@ -1,266 +1,460 @@
-import { notFound } from 'next/navigation';
-import type { Metadata } from 'next';
-import Link from 'next/link';
-import { publicApi } from '@/lib/api';
-import { products as mockProducts } from '@/lib/mock-data';
-import type { Product } from '@/lib/types';
-import { buildMetadata, productJsonLd, breadcrumbJsonLd } from '@/lib/seo';
-import { site } from '@/lib/site';
-import { ProductGallery } from '@/components/products/product-gallery';
-import { InquiryForm } from '@/components/forms/inquiry-form';
-import { RelatedProducts } from '@/components/products/related-products';
+'use client';
+
+import { useMemo, useState, useEffect, Suspense } from 'react';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
-  ChevronRight,
-  MapPin,
-  Package,
-  Boxes,
-  Ship,
-  CheckCircle2,
-  MessageCircle,
+  Search,
+  SlidersHorizontal,
+  X,
+  PackageSearch,
+  Loader2,
 } from 'lucide-react';
+import { publicApi } from '@/lib/api';
+import { products as mockProducts, categories as mockCategories } from '@/lib/mock-data';
+import type { Product, PaginatedProducts } from '@/lib/types';
+import { ProductCard } from '@/components/products/product-card';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 
-interface Params {
-  params: { slug: string };
-}
+const AVAILABILITY = [
+  { value: 'all', label: 'All availability' },
+  { value: 'in-stock', label: 'In stock' },
+  { value: 'made-to-order', label: 'Made to order' },
+  { value: 'out-of-stock', label: 'Out of stock' },
+];
 
-async function getProduct(slug: string): Promise<Product | null> {
-  try {
-    const data = (await publicApi.getProduct(slug)) as Product | null;
-    if (data) return data;
-  } catch {
-    // fall through to mock
-  }
-  return mockProducts.find((p) => p.slug === slug) || null;
-}
+const PACKAGING_TYPES = [
+  'Individual gift box',
+  'Carton of 12',
+  'Custom retail packaging',
+  '25kg food-grade bag',
+  '500g glass jar',
+  '1 ton super sack',
+];
 
-export async function generateMetadata({ params }: Params): Promise<Metadata> {
-  const product = await getProduct(params.slug);
-  if (!product) {
-    return buildMetadata({
-      title: 'Product not found',
-      path: `/products/${params.slug}`,
-      noIndex: true,
-    });
-  }
-  return buildMetadata({
-    title: product.name,
-    description: product.shortDescription,
-    path: `/products/${product.slug}`,
-    image: product.images[0],
-    type: 'product',
+function ProductsContent() {
+  const params = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const initialCategory = params.get('category') || 'all';
+  const initialSearch = params.get('q') || '';
+  const initialSort = (params.get('sort') as string) || 'latest';
+
+  const [search, setSearch] = useState(initialSearch);
+  const [category, setCategory] = useState(initialCategory);
+  const [availability, setAvailability] = useState('all');
+  const [packaging, setPackaging] = useState<string[]>([]);
+  const [featuredOnly, setFeaturedOnly] = useState(false);
+  const [sort, setSort] = useState(initialSort);
+  const [showFilters, setShowFilters] = useState(false);
+
+  // Debounce search + sync URL
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const next = new URLSearchParams();
+      if (search) next.set('q', search);
+      if (category !== 'all') next.set('category', category);
+      if (sort !== 'latest') next.set('sort', sort);
+      const qs = next.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    }, 350);
+    return () => clearTimeout(t);
+  }, [search, category, sort, pathname, router]);
+
+  const { data, isLoading, error } = useQuery<PaginatedProducts>({
+    queryKey: ['products', { search, category, availability, packaging, featuredOnly, sort }],
+    queryFn: () =>
+      publicApi.getProducts({
+        search,
+        category: category !== 'all' ? category : undefined,
+        availability: availability !== 'all' ? availability : undefined,
+        packaging: packaging.length ? packaging.join(',') : undefined,
+        featured: featuredOnly || undefined,
+        sort,
+      }),
+    retry: 1,
   });
-}
 
-export default async function ProductDetailPage({ params }: Params) {
-  const product = await getProduct(params.slug);
-  if (!product) notFound();
+  // Frontend-only fallback: filter mock data when API is unavailable
+  const fallbackFiltered = useMemo(() => {
+    let list = [...mockProducts].filter((p) => p.published);
+    const q = search.trim().toLowerCase();
+    if (q) {
+      list = list.filter((p) =>
+        [p.name, p.category, p.shortDescription, p.description, p.usage, ...p.packaging]
+          .join(' ')
+          .toLowerCase()
+          .includes(q)
+      );
+    }
+    if (category !== 'all') {
+      list = list.filter((p) => p.categoryId === category || p.category.toLowerCase().replace(/\s+/g, '-') === category);
+    }
+    if (availability !== 'all') list = list.filter((p) => p.availability === availability);
+    if (packaging.length) {
+      list = list.filter((p) => packaging.some((pk) => p.packaging.includes(pk)));
+    }
+    if (featuredOnly) list = list.filter((p) => p.featured);
 
-  const jsonLd = productJsonLd(product);
-  const breadcrumbs = breadcrumbJsonLd([
-    { name: 'Home', url: `${site.url}/` },
-    { name: 'Products', url: `${site.url}/products` },
-    { name: product.name, url: `${site.url}/products/${product.slug}` },
-  ]);
+    switch (sort) {
+      case 'alphabetical':
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        break;
+      case 'featured':
+        list.sort((a, b) => Number(b.featured) - Number(a.featured));
+        break;
+      case 'category':
+        list.sort((a, b) => a.category.localeCompare(b.category));
+        break;
+      default:
+        list.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
+    }
+    return list;
+  }, [search, category, availability, packaging, featuredOnly, sort]);
 
-  const whatsappText = encodeURIComponent(
-    `Hello, I am interested in "${product.name}". Please share pricing and availability.`
-  );
+  console.log('🌐 Public Products Page:', {
+    isLoading,
+    hasError: !!error,
+    error: error?.message,
+    hasData: !!data,
+    dataStructure: data,
+    itemsCount: data?.items?.length || data?.data?.length || 0,
+  });
+
+  // Backend returns: { success, data: [...], pagination }
+  // Extract the products array from the response
+  const apiItems = data?.data || [];
+  const items: Product[] =
+    !isLoading && Array.isArray(apiItems) && apiItems.length > 0
+      ? apiItems
+      : fallbackFiltered;
+
+  const activeFilterCount =
+    (category !== 'all' ? 1 : 0) +
+    (availability !== 'all' ? 1 : 0) +
+    packaging.length +
+    (featuredOnly ? 1 : 0);
+
+  const resetFilters = () => {
+    setCategory('all');
+    setAvailability('all');
+    setPackaging([]);
+    setFeaturedOnly(false);
+    setSearch('');
+  };
+
+  const togglePackaging = (pk: string) =>
+    setPackaging((prev) =>
+      prev.includes(pk) ? prev.filter((p) => p !== pk) : [...prev, pk]
+    );
 
   return (
     <div className="mx-auto max-w-7xl px-6 pt-32 pb-16 lg:px-8">
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-      />
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbs) }}
-      />
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="max-w-3xl"
+      >
+        <p className="text-sm font-medium uppercase tracking-wider text-rose-500">
+          Product catalogue
+        </p>
+        <h1 className="mt-2 text-5xl font-semibold text-stone-900">
+          Explore our salt collection
+        </h1>
+        <p className="mt-3 text-stone-600">
+          Search across {mockProducts.length}+ products by name, category,
+          packaging, or intended use. Filter and sort to find exactly what you
+          need.
+        </p>
+      </motion.div>
 
-      {/* Breadcrumbs */}
-      <nav className="flex items-center gap-1 text-sm text-stone-500">
-        <Link href="/" className="hover:text-rose-600">
-          Home
-        </Link>
-        <ChevronRight className="h-3.5 w-3.5" />
-        <Link href="/products" className="hover:text-rose-600">
-          Products
-        </Link>
-        <ChevronRight className="h-3.5 w-3.5" />
-        <Link
-          href={`/products?category=${product.categoryId}`}
-          className="hover:text-rose-600"
-        >
-          {product.category}
-        </Link>
-        <ChevronRight className="h-3.5 w-3.5" />
-        <span className="truncate text-stone-700">{product.name}</span>
-      </nav>
-
-      <div className="mt-8 grid gap-12 lg:grid-cols-2">
-        <ProductGallery images={product.images} name={product.name} />
-
-        <div>
-          <div className="flex flex-wrap gap-2">
-            <Badge className="bg-rose-100 text-rose-700">{product.category}</Badge>
-            {product.featured && (
-              <Badge className="bg-amber-100 text-amber-700">Featured</Badge>
-            )}
-            {product.availability && (
-              <Badge
-                variant="outline"
-                className={
-                  product.availability === 'in-stock'
-                    ? 'border-emerald-300 text-emerald-700'
-                    : product.availability === 'made-to-order'
-                    ? 'border-amber-300 text-amber-700'
-                    : 'border-red-300 text-red-700'
-                }
-              >
-                {product.availability.replace('-', ' ')}
+      {/* Search + sort row */}
+      <div className="mt-10 flex flex-col gap-4 md:flex-row md:items-center">
+        <div className="relative flex-1">
+          <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name, category, packaging, or usage..."
+            className="h-12 rounded-full border-rose-200 bg-white pl-11 pr-11"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-stone-400 hover:bg-stone-100"
+              aria-label="Clear search"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            onClick={() => setShowFilters((s) => !s)}
+            className="h-12 rounded-full border-rose-200 px-5"
+          >
+            <SlidersHorizontal className="mr-2 h-4 w-4" />
+            Filters
+            {activeFilterCount > 0 && (
+              <Badge className="ml-2 bg-rose-500 text-white">
+                {activeFilterCount}
               </Badge>
             )}
-          </div>
-
-          <h1 className="mt-4 text-4xl font-semibold text-stone-900 sm:text-5xl">
-            {product.name}
-          </h1>
-          <p className="mt-3 text-lg text-stone-600">{product.shortDescription}</p>
-
-          <dl className="mt-8 grid gap-4 sm:grid-cols-2">
-            <Info icon={MapPin} label="Origin" value={product.origin} />
-            <Info icon={Package} label="Packaging" value={product.packaging.join(', ')} />
-            <Info icon={Boxes} label="Minimum order" value={product.minimumOrderQuantity} />
-            <Info icon={Ship} label="Export" value={product.exportInformation} />
-          </dl>
-
-          <div className="mt-8 flex flex-wrap gap-3">
-            <a
-              href={`https://wa.me/${site.whatsapp}?text=${whatsappText}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-6 py-3 text-sm font-semibold text-white shadow-md transition-transform hover:scale-105"
-            >
-              <MessageCircle className="h-4 w-4" />
-              WhatsApp
-            </a>
-            <a
-              href="#inquiry"
-              className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-rose-500 to-amber-400 px-6 py-3 text-sm font-semibold text-white shadow-md transition-transform hover:scale-105"
-            >
-              Send Inquiry
-            </a>
-          </div>
+          </Button>
+          <Select value={sort} onValueChange={setSort}>
+            <SelectTrigger className="h-12 w-44 rounded-full border-rose-200 bg-white">
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="latest">Latest</SelectItem>
+              <SelectItem value="alphabetical">Alphabetical</SelectItem>
+              <SelectItem value="featured">Featured</SelectItem>
+              <SelectItem value="category">Category</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
-      {/* Description + specifications */}
-      <div className="mt-16 grid gap-10 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <h2 className="text-2xl font-semibold text-stone-900">
-            Product description
-          </h2>
-          <p className="mt-4 whitespace-pre-line leading-relaxed text-stone-700">
-            {product.description}
-          </p>
-
-          <h3 className="mt-10 text-xl font-semibold text-stone-900">Usage</h3>
-          <p className="mt-3 leading-relaxed text-stone-700">{product.usage}</p>
-
-          <h3 className="mt-10 text-xl font-semibold text-stone-900">
-            Available sizes
-          </h3>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {product.sizes.map((s) => (
-              <span
-                key={s}
-                className="rounded-full border border-rose-200 bg-rose-50 px-4 py-1.5 text-sm text-rose-700"
-              >
-                {s}
-              </span>
-            ))}
-          </div>
-
-          <h3 className="mt-10 text-xl font-semibold text-stone-900">
-            Packaging options
-          </h3>
-          <ul className="mt-3 space-y-2">
-            {product.packaging.map((p) => (
-              <li key={p} className="flex items-center gap-2 text-stone-700">
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                {p}
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <aside className="rounded-2xl border border-rose-100 bg-white p-6">
-          <h3 className="text-lg font-semibold text-stone-900">Specifications</h3>
-          <dl className="mt-4 divide-y divide-rose-50">
-            {Object.entries(product.specifications).map(([k, v]) => (
-              <div key={k} className="flex justify-between gap-4 py-3 text-sm">
-                <dt className="text-stone-500">{k}</dt>
-                <dd className="text-right font-medium text-stone-900">{v}</dd>
+      {/* Filters panel */}
+      <AnimatePresence>
+        {showFilters && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="mt-6 grid gap-6 rounded-2xl border border-rose-100 bg-white p-6 md:grid-cols-4">
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-stone-500">
+                  Category
+                </h3>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <FilterChip
+                    active={category === 'all'}
+                    onClick={() => setCategory('all')}
+                  >
+                    All
+                  </FilterChip>
+                  {mockCategories.map((c) => (
+                    <FilterChip
+                      key={c.slug}
+                      active={category === c.slug}
+                      onClick={() => setCategory(c.slug)}
+                    >
+                      {c.name}
+                    </FilterChip>
+                  ))}
+                </div>
               </div>
-            ))}
-          </dl>
-        </aside>
+
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-stone-500">
+                  Availability
+                </h3>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {AVAILABILITY.map((a) => (
+                    <FilterChip
+                      key={a.value}
+                      active={availability === a.value}
+                      onClick={() => setAvailability(a.value)}
+                    >
+                      {a.label}
+                    </FilterChip>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-stone-500">
+                  Packaging
+                </h3>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {PACKAGING_TYPES.map((pk) => (
+                    <FilterChip
+                      key={pk}
+                      active={packaging.includes(pk)}
+                      onClick={() => togglePackaging(pk)}
+                    >
+                      {pk}
+                    </FilterChip>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-stone-500">
+                  Featured
+                </h3>
+                <div className="mt-3">
+                  <FilterChip
+                    active={featuredOnly}
+                    onClick={() => setFeaturedOnly((f) => !f)}
+                  >
+                    Featured only
+                  </FilterChip>
+                </div>
+                {activeFilterCount > 0 && (
+                  <Button
+                    variant="ghost"
+                    onClick={resetFilters}
+                    className="mt-4 h-9 px-3 text-rose-600 hover:bg-rose-50"
+                  >
+                    Reset all filters
+                  </Button>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Active filter chips */}
+      {activeFilterCount > 0 && !showFilters && (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-stone-500">Active filters:</span>
+          {category !== 'all' && (
+            <ActiveChip
+              label={mockCategories.find((c) => c.slug === category)?.name || category}
+              onRemove={() => setCategory('all')}
+            />
+          )}
+          {availability !== 'all' && (
+            <ActiveChip
+              label={AVAILABILITY.find((a) => a.value === availability)?.label || ''}
+              onRemove={() => setAvailability('all')}
+            />
+          )}
+          {packaging.map((pk) => (
+            <ActiveChip key={pk} label={pk} onRemove={() => togglePackaging(pk)} />
+          ))}
+          {featuredOnly && (
+            <ActiveChip label="Featured only" onRemove={() => setFeaturedOnly(false)} />
+          )}
+          <button
+            onClick={resetFilters}
+            className="text-xs font-medium text-rose-600 hover:underline"
+          >
+            Clear all
+          </button>
+        </div>
+      )}
+
+      {/* Results */}
+      <div className="mt-8 flex items-center justify-between text-sm text-stone-500">
+        <p>
+          {isLoading ? (
+            <span className="inline-flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading products...
+            </span>
+          ) : (
+            <>
+              Showing <span className="font-semibold text-stone-900">{items.length}</span>{' '}
+              {items.length === 1 ? 'product' : 'products'}
+            </>
+          )}
+        </p>
       </div>
 
-      {/* Inquiry form */}
-      <section id="inquiry" className="mt-20 scroll-mt-24">
-        <div className="grid gap-10 lg:grid-cols-2">
-          <div>
-            <h2 className="text-3xl font-semibold text-stone-900">
-              Request a quote
-            </h2>
-            <p className="mt-3 text-stone-600">
-              Fill out the form and our export team will respond within one
-              business day with pricing, lead time, and shipping options.
-            </p>
-            <ul className="mt-6 space-y-3 text-sm text-stone-700">
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                Bulk and retail pricing
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                Custom packaging and private label
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                Worldwide shipping with documentation
-              </li>
-            </ul>
-          </div>
-          <div className="rounded-2xl border border-rose-100 bg-white p-6 shadow-sm">
-            <InquiryForm productName={product.name} productId={product.id} />
-          </div>
+      {isLoading ? (
+        <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div
+              key={i}
+              className="h-[420px] animate-pulse rounded-2xl border border-rose-100 bg-rose-50/50"
+            />
+          ))}
         </div>
-      </section>
-
-      <RelatedProducts product={product} />
+      ) : items.length === 0 ? (
+        <EmptyState onReset={resetFilters} />
+      ) : (
+        <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          {items.map((p, i) => (
+            <ProductCard key={p.id} product={p} index={i} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function Info({
-  icon: Icon,
-  label,
-  value,
+function FilterChip({
+  active,
+  onClick,
+  children,
 }: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: string;
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-rose-100 bg-white p-4">
-      <dt className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-stone-500">
-        <Icon className="h-3.5 w-3.5 text-rose-500" />
-        {label}
-      </dt>
-      <dd className="mt-1.5 text-sm font-medium text-stone-900">{value}</dd>
+    <button
+      onClick={onClick}
+      className={cn(
+        'rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
+        active
+          ? 'border-rose-500 bg-rose-500 text-white'
+          : 'border-stone-200 bg-white text-stone-700 hover:border-rose-300 hover:text-rose-600'
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ActiveChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-3 py-1 text-xs font-medium text-rose-700">
+      {label}
+      <button
+        onClick={onRemove}
+        className="rounded-full p-0.5 hover:bg-rose-200"
+        aria-label={`Remove ${label}`}
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </span>
+  );
+}
+
+function EmptyState({ onReset }: { onReset: () => void }) {
+  return (
+    <div className="mt-12 flex flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-rose-200 bg-white px-6 py-16 text-center">
+      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-rose-50 text-rose-400">
+        <PackageSearch className="h-8 w-8" />
+      </div>
+      <h3 className="text-xl font-semibold text-stone-900">No products found</h3>
+      <p className="max-w-md text-sm text-stone-600">
+        We could not find any products matching your search and filters. Try
+        adjusting your query or clearing filters.
+      </p>
+      <Button
+        onClick={onReset}
+        className="mt-2 rounded-full bg-rose-500 text-white hover:bg-rose-600"
+      >
+        Clear all filters
+      </Button>
     </div>
+  );
+}
+
+export default function ProductsPage() {
+  return (
+    <Suspense fallback={<div className="pt-32 text-center text-stone-500">Loading...</div>}>
+      <ProductsContent />
+    </Suspense>
   );
 }
