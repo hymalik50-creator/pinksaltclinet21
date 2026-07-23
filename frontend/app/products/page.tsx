@@ -73,7 +73,7 @@ function ProductsContent() {
     return () => clearTimeout(t);
   }, [search, category, sort, pathname, router]);
 
-  const { data, isLoading, error } = useQuery<PaginatedProducts>({
+  const { data, isLoading } = useQuery<PaginatedProducts>({
     queryKey: ['products', { search, category, availability, packaging, featuredOnly, sort }],
     queryFn: () =>
       publicApi.getProducts({
@@ -84,7 +84,7 @@ function ProductsContent() {
         featured: featuredOnly || undefined,
         sort,
       }),
-    retry: 1,
+    retry: false,
   });
 
   // Frontend-only fallback: filter mock data when API is unavailable
@@ -124,18 +124,7 @@ function ProductsContent() {
     return list;
   }, [search, category, availability, packaging, featuredOnly, sort]);
 
-  console.log('🌐 Public Products Page:', {
-    isLoading,
-    hasError: !!error,
-    error: error?.message,
-    hasData: !!data,
-    dataStructure: data,
-    itemsCount: data?.items?.length || data?.data?.length || 0,
-  });
-
-  // Backend returns: { success, data: [...], pagination }
-  // Extract the products array from the response
-  const apiItems = data?.data || [];
+  const apiItems = data?.items;
   const items: Product[] =
     !isLoading && Array.isArray(apiItems) && apiItems.length > 0
       ? apiItems
