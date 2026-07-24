@@ -4,16 +4,26 @@ import { useState } from 'react';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import type { ProductImage } from '@/lib/types';
 
 export function ProductGallery({
   images,
   name,
 }: {
-  images: string[];
+  images: ProductImage[] | string[];
   name: string;
 }) {
   const [active, setActive] = useState(0);
-  if (!images.length) return null;
+  
+  // Convert ProductImage[] to string[] if needed
+  const imageUrls = images.map(img => 
+    typeof img === 'string' ? img : img.displayUrl || img.imageUrl
+  );
+  
+  // Add placeholder if no images
+  const displayUrls = imageUrls.length > 0 ? imageUrls : ['/og-default.jpg'];
+  
+  if (!displayUrls.length) return null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -25,7 +35,7 @@ export function ProductGallery({
         className="relative aspect-square overflow-hidden rounded-2xl border border-rose-100 bg-rose-50"
       >
         <Image
-          src={images[active]}
+          src={displayUrls[active]}
           alt={`${name} — image ${active + 1}`}
           fill
           sizes="(max-width: 768px) 100vw, 50vw"
@@ -34,9 +44,9 @@ export function ProductGallery({
         />
       </motion.div>
 
-      {images.length > 1 && (
+      {displayUrls.length > 1 && (
         <div className="grid grid-cols-5 gap-3">
-          {images.map((img, i) => (
+          {displayUrls.map((img, i) => (
             <button
               key={i}
               onClick={() => setActive(i)}
