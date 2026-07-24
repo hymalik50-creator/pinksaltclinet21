@@ -73,7 +73,7 @@ function ProductsContent() {
     return () => clearTimeout(t);
   }, [search, category, sort, pathname, router]);
 
-  const { data, isLoading } = useQuery<PaginatedProducts>({
+  const { data, isLoading, error } = useQuery<PaginatedProducts>({
     queryKey: ['products', { search, category, availability, packaging, featuredOnly, sort }],
     queryFn: () =>
       publicApi.getProducts({
@@ -84,7 +84,7 @@ function ProductsContent() {
         featured: featuredOnly || undefined,
         sort,
       }),
-    retry: false,
+    retry: 1,
   });
 
   // Frontend-only fallback: filter mock data when API is unavailable
@@ -93,16 +93,18 @@ function ProductsContent() {
     const q = search.trim().toLowerCase();
     if (q) {
       list = list.filter((p) =>
-        [p.name, p.category, p.shortDescription, p.description, p.usage, ...p.packaging]
+        [p.name, p.category || '', p.shortDescription, p.description, p.usage, ...p.packaging]
           .join(' ')
           .toLowerCase()
           .includes(q)
       );
     }
     if (category !== 'all') {
-      list = list.filter((p) => p.categoryId === category || p.category.toLowerCase().replace(/\s+/g, '-') === category);
+      list = list.filter((p) => p.categoryId === category || (p.category && p.category.toLowerCase().replace(/\s+/g, '-') === category));
     }
-    if (availability !== 'all') list = list.filter((p) => p.availability === availability);
+    if (availability !== 'all') {
+      list = list.filter((p) => p.availability && typeof p.availability === 'string' && p.availability === availability);
+    }
     if (packaging.length) {
       list = list.filter((p) => packaging.some((pk) => p.packaging.includes(pk)));
     }
@@ -116,7 +118,7 @@ function ProductsContent() {
         list.sort((a, b) => Number(b.featured) - Number(a.featured));
         break;
       case 'category':
-        list.sort((a, b) => a.category.localeCompare(b.category));
+        list.sort((a, b) => (a.category || '').localeCompare(b.category || ''));
         break;
       default:
         list.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
@@ -124,7 +126,20 @@ function ProductsContent() {
     return list;
   }, [search, category, availability, packaging, featuredOnly, sort]);
 
-  const apiItems = data?.items;
+  console.log('🌐 Public Products Page:', {
+    isLoading,
+    hasError: !!error,
+    error: error?.message,
+    errorDetails: error,
+    hasData: !!data,
+    dataStructure: data,
+    itemsCount: data?.items?.length || data?.data?.length || 0,
+    apiUrl: process.env.NEXT_PUBLIC_API_BASE_URL,
+  });
+
+  // Backend returns: { success, data: [...], pagination } OR { items: [...] }
+  // Extract the products array from the response
+  const apiItems = (data as any)?.data || (data as any)?.items || [];
   const items: Product[] =
     !isLoading && Array.isArray(apiItems) && apiItems.length > 0
       ? apiItems
