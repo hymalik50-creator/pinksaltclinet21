@@ -44,13 +44,32 @@ api.interceptors.response.use(
 // Public endpoints
 export const publicApi = {
   getProducts: (params?: Record<string, unknown>) =>
-    api.get('/products', { params }).then((r) => r.data),
+    api.get('/products', { params }).then((r) => {
+      // Return full response with data and pagination for list endpoints
+      const response = r.data;
+      if (response.success && response.data && response.pagination) {
+        return {
+          data: response.data,
+          pagination: response.pagination,
+        };
+      }
+      // Fallback for non-standard responses
+      return response.data || response;
+    }),
   getProduct: (slug: string) =>
-    api.get(`/products/${slug}`).then((r) => r.data),
-  getCategories: () => api.get('/categories').then((r) => r.data),
-  getBlogPosts: () => api.get('/blog').then((r) => r.data),
+    api.get(`/products/${slug}`).then((r) => r.data.data || r.data),
+  getCategories: () => 
+    api.get('/categories').then((r) => {
+      const response = r.data;
+      // If it's a paginated response, extract just the data array
+      if (response.success && response.data) {
+        return response.data;
+      }
+      return response;
+    }),
+  getBlogPosts: () => api.get('/blog').then((r) => r.data.data || r.data),
   getBlogPost: (slug: string) =>
-    api.get(`/blog/${slug}`).then((r) => r.data),
+    api.get(`/blog/${slug}`).then((r) => r.data.data || r.data),
   submitInquiry: (data: Record<string, unknown>) => {
     // Map frontend field names to backend field names
     const mappedData = {
