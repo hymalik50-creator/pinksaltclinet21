@@ -16,9 +16,10 @@ export interface Product {
   usage: string;
   packaging: string[];
   sizes: string[];
-  availability: boolean;
+  availability?: string | boolean;
   minimumOrderQuantity: string;
   specifications: Record<string, string>;
+  exportInformation?: string;
   metaTitle?: string;
   metaDescription?: string;
   keywords?: string[];
@@ -86,7 +87,8 @@ export interface PaginatedResponse<T = any> {
 }
 
 export interface PaginatedProducts {
-  items: Product[];
+  items?: Product[];
+  data?: Product[];
   total: number;
   page: number;
   limit: number;
