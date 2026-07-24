@@ -26,9 +26,10 @@ interface Params {
 
 async function getProduct(slug: string): Promise<Product | null> {
   try {
-    const data = (await publicApi.getProduct(slug)) as Product | null;
-    if (data) return data;
-  } catch {
+    const product = (await publicApi.getProduct(slug)) as Product | null;
+    if (product && product.id) return product;
+  } catch (error) {
+    console.error('Error fetching product:', error);
     // fall through to mock
   }
   return mockProducts.find((p) => p.slug === slug) || null;
@@ -43,11 +44,20 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
       noIndex: true,
     });
   }
+  
+  // Extract image URL from ProductImage or use as string
+  let imageUrl: string | undefined;
+  if (product.images && product.images.length > 0) {
+    imageUrl = typeof product.images[0] === 'string' 
+      ? product.images[0] 
+      : product.images[0]?.displayUrl || product.images[0]?.imageUrl;
+  }
+  
   return buildMetadata({
     title: product.name,
     description: product.shortDescription,
     path: `/products/${product.slug}`,
-    image: product.images[0],
+    image: imageUrl,
     type: 'product',
   });
 }
@@ -56,15 +66,42 @@ export default async function ProductDetailPage({ params }: Params) {
   const product = await getProduct(params.slug);
   if (!product) notFound();
 
-  const jsonLd = productJsonLd(product);
+  // Log the product data to see what we're actually getting from the API
+  console.log('🔍 Product data received:', {
+    name: product.name,
+    slug: product.slug,
+    hasImages: !!product.images,
+    imagesLength: product.images?.length,
+    hasDescription: !!product.description,
+    hasShortDescription: !!product.shortDescription,
+    hasFullDescription: !!product.fullDescription,
+    keys: Object.keys(product)
+  });
+
+  // Normalize product data - handle different field names from API
+  const normalizedProduct = {
+    ...product,
+    description: product.description || product.fullDescription || product.shortDescription || 'No description available',
+    shortDescription: product.shortDescription || product.description || 'Premium Himalayan Salt Product',
+    images: product.images || [],
+    packaging: product.packaging || ['Contact us for packaging options'],
+    sizes: product.sizes || ['Contact us for available sizes'],
+    specifications: product.specifications || { 'Contact': 'For detailed specifications' },
+    origin: product.origin || 'Pakistan',
+    usage: product.usage || 'Contact us for usage information',
+    minimumOrderQuantity: product.minimumOrderQuantity || 'Contact us for MOQ',
+    category: product.category || 'Himalayan Salt Products',
+  };
+
+  const jsonLd = productJsonLd(normalizedProduct);
   const breadcrumbs = breadcrumbJsonLd([
     { name: 'Home', url: `${site.url}/` },
     { name: 'Products', url: `${site.url}/products` },
-    { name: product.name, url: `${site.url}/products/${product.slug}` },
+    { name: normalizedProduct.name, url: `${site.url}/products/${normalizedProduct.slug}` },
   ]);
 
   const whatsappText = encodeURIComponent(
-    `Hello, I am interested in "${product.name}". Please share pricing and availability.`
+    `Hello, I am interested in "${normalizedProduct.name}". Please share pricing and availability.`
   );
 
   return (
@@ -89,48 +126,50 @@ export default async function ProductDetailPage({ params }: Params) {
         </Link>
         <ChevronRight className="h-3.5 w-3.5" />
         <Link
-          href={`/products?category=${product.categoryId}`}
+          href={`/products?category=${normalizedProduct.categoryId}`}
           className="hover:text-rose-600"
         >
-          {product.category}
+          {normalizedProduct.category || 'Category'}
         </Link>
         <ChevronRight className="h-3.5 w-3.5" />
-        <span className="truncate text-stone-700">{product.name}</span>
+        <span className="truncate text-stone-700">{normalizedProduct.name}</span>
       </nav>
 
       <div className="mt-8 grid gap-12 lg:grid-cols-2">
-        <ProductGallery images={product.images} name={product.name} />
+        <ProductGallery images={normalizedProduct.images || []} name={normalizedProduct.name} />
 
         <div>
           <div className="flex flex-wrap gap-2">
-            <Badge className="bg-rose-100 text-rose-700">{product.category}</Badge>
-            {product.featured && (
+            <Badge className="bg-rose-100 text-rose-700">{normalizedProduct.category || 'Product'}</Badge>
+            {normalizedProduct.featured && (
               <Badge className="bg-amber-100 text-amber-700">Featured</Badge>
             )}
-            <Badge
-              variant="outline"
-              className={
-                product.availability === 'in-stock'
-                  ? 'border-emerald-300 text-emerald-700'
-                  : product.availability === 'made-to-order'
-                  ? 'border-amber-300 text-amber-700'
-                  : 'border-red-300 text-red-700'
-              }
-            >
-              {product.availability.replace('-', ' ')}
-            </Badge>
+            {normalizedProduct.availability && typeof normalizedProduct.availability === 'string' && (
+              <Badge
+                variant="outline"
+                className={
+                  normalizedProduct.availability === 'in-stock'
+                    ? 'border-emerald-300 text-emerald-700'
+                    : normalizedProduct.availability === 'made-to-order'
+                    ? 'border-amber-300 text-amber-700'
+                    : 'border-red-300 text-red-700'
+                }
+              >
+                {normalizedProduct.availability.replace('-', ' ')}
+              </Badge>
+            )}
           </div>
 
           <h1 className="mt-4 text-4xl font-semibold text-stone-900 sm:text-5xl">
-            {product.name}
+            {normalizedProduct.name}
           </h1>
-          <p className="mt-3 text-lg text-stone-600">{product.shortDescription}</p>
+          <p className="mt-3 text-lg text-stone-600">{normalizedProduct.shortDescription}</p>
 
           <dl className="mt-8 grid gap-4 sm:grid-cols-2">
-            <Info icon={MapPin} label="Origin" value={product.origin} />
-            <Info icon={Package} label="Packaging" value={product.packaging.join(', ')} />
-            <Info icon={Boxes} label="Minimum order" value={product.minimumOrderQuantity} />
-            <Info icon={Ship} label="Export" value={product.exportInformation} />
+            <Info icon={MapPin} label="Origin" value={normalizedProduct.origin} />
+            <Info icon={Package} label="Packaging" value={normalizedProduct.packaging?.join(', ')} />
+            <Info icon={Boxes} label="Minimum order" value={normalizedProduct.minimumOrderQuantity} />
+            <Info icon={Ship} label="Export" value={normalizedProduct.exportInformation} />
           </dl>
 
           <div className="mt-8 flex flex-wrap gap-3">
@@ -160,50 +199,64 @@ export default async function ProductDetailPage({ params }: Params) {
             Product description
           </h2>
           <p className="mt-4 whitespace-pre-line leading-relaxed text-stone-700">
-            {product.description}
+            {normalizedProduct.description || normalizedProduct.fullDescription || normalizedProduct.shortDescription}
           </p>
 
-          <h3 className="mt-10 text-xl font-semibold text-stone-900">Usage</h3>
-          <p className="mt-3 leading-relaxed text-stone-700">{product.usage}</p>
+          {normalizedProduct.usage && (
+            <>
+              <h3 className="mt-10 text-xl font-semibold text-stone-900">Usage</h3>
+              <p className="mt-3 leading-relaxed text-stone-700">{normalizedProduct.usage}</p>
+            </>
+          )}
 
-          <h3 className="mt-10 text-xl font-semibold text-stone-900">
-            Available sizes
-          </h3>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {product.sizes.map((s) => (
-              <span
-                key={s}
-                className="rounded-full border border-rose-200 bg-rose-50 px-4 py-1.5 text-sm text-rose-700"
-              >
-                {s}
-              </span>
-            ))}
-          </div>
+          {normalizedProduct.sizes && normalizedProduct.sizes.length > 0 && (
+            <>
+              <h3 className="mt-10 text-xl font-semibold text-stone-900">
+                Available sizes
+              </h3>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(normalizedProduct.sizes || []).map((s) => (
+                  <span
+                    key={s}
+                    className="rounded-full border border-rose-200 bg-rose-50 px-4 py-1.5 text-sm text-rose-700"
+                  >
+                    {s}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
 
-          <h3 className="mt-10 text-xl font-semibold text-stone-900">
-            Packaging options
-          </h3>
-          <ul className="mt-3 space-y-2">
-            {product.packaging.map((p) => (
-              <li key={p} className="flex items-center gap-2 text-stone-700">
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                {p}
-              </li>
-            ))}
-          </ul>
+          {normalizedProduct.packaging && normalizedProduct.packaging.length > 0 && (
+            <>
+              <h3 className="mt-10 text-xl font-semibold text-stone-900">
+                Packaging options
+              </h3>
+              <ul className="mt-3 space-y-2">
+                {(normalizedProduct.packaging || []).map((p) => (
+                  <li key={p} className="flex items-center gap-2 text-stone-700">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                    {p}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </div>
 
-        <aside className="rounded-2xl border border-rose-100 bg-white p-6">
-          <h3 className="text-lg font-semibold text-stone-900">Specifications</h3>
-          <dl className="mt-4 divide-y divide-rose-50">
-            {Object.entries(product.specifications).map(([k, v]) => (
-              <div key={k} className="flex justify-between gap-4 py-3 text-sm">
-                <dt className="text-stone-500">{k}</dt>
-                <dd className="text-right font-medium text-stone-900">{v}</dd>
-              </div>
-            ))}
-          </dl>
-        </aside>
+        {Object.keys(normalizedProduct.specifications || {}).length > 0 && (
+          <aside className="rounded-2xl border border-rose-100 bg-white p-6">
+            <h3 className="text-lg font-semibold text-stone-900">Specifications</h3>
+            <dl className="mt-4 divide-y divide-rose-50">
+              {Object.entries(normalizedProduct.specifications || {}).map(([k, v]) => (
+                <div key={k} className="flex justify-between gap-4 py-3 text-sm">
+                  <dt className="text-stone-500">{k}</dt>
+                  <dd className="text-right font-medium text-stone-900">{v}</dd>
+                </div>
+              ))}
+            </dl>
+          </aside>
+        )}
       </div>
 
       {/* Inquiry form */}
@@ -233,12 +286,12 @@ export default async function ProductDetailPage({ params }: Params) {
             </ul>
           </div>
           <div className="rounded-2xl border border-rose-100 bg-white p-6 shadow-sm">
-            <InquiryForm productName={product.name} productId={product.id} />
+            <InquiryForm productName={normalizedProduct.name} productId={normalizedProduct.id} />
           </div>
         </div>
       </section>
 
-      <RelatedProducts product={product} />
+      <RelatedProducts product={normalizedProduct} />
     </div>
   );
 }
@@ -250,8 +303,10 @@ function Info({
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
-  value: string;
+  value?: string;
 }) {
+  if (!value) return null;
+  
   return (
     <div className="rounded-xl border border-rose-100 bg-white p-4">
       <dt className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-stone-500">
