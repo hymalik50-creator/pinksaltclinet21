@@ -54,18 +54,23 @@ export function buildMetadata({
 
 export function productJsonLd(product: {
   name: string;
-  description: string;
-  images: string[];
+  description?: string;
+  images?: string[] | any[];
   slug: string;
   category?: string;
 }) {
+  // Convert ProductImage[] to string[] if needed
+  const imageUrls = (product.images || []).map(img => 
+    typeof img === 'string' ? img : (img.displayUrl || img.imageUrl)
+  );
+  
   return {
     '@context': 'https://schema.org',
     '@type': 'Product',
     name: product.name,
-    description: product.description,
+    description: product.description || product.name,
     category: product.category,
-    image: product.images,
+    image: imageUrls.length > 0 ? imageUrls : ['/og-default.jpg'],
     url: `${site.url}/products/${product.slug}`,
     brand: { '@type': 'Brand', name: site.name },
   };
