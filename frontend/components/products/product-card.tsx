@@ -13,15 +13,21 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ product, index = 0 }: ProductCardProps) {
-  // Handle both string and object image formats
+  // Handle both string and ProductImage object formats from ImageBB
   const getImageUrl = (image: any): string => {
     if (typeof image === 'string') return image;
-    return image?.imageUrl || image?.displayUrl || '';
+    // ProductImage from ImageBB has displayUrl, imageUrl, thumbnailUrl
+    return image?.displayUrl || image?.imageUrl || image?.thumbnailUrl || '';
   };
 
   const imageUrl = product.images && product.images.length > 0 
     ? getImageUrl(product.images[0])
     : '';
+
+  // Safe access to packaging array
+  const packagingText = product.packaging && product.packaging.length > 0 
+    ? product.packaging[0] 
+    : 'Custom packaging';
 
   return (
     <motion.article
@@ -81,7 +87,7 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
         <div className="mt-3 flex items-center gap-1.5 text-xs text-stone-500">
           <Package className="h-3.5 w-3.5" />
           <span className="line-clamp-1">
-            {product.packaging[0] || 'Custom packaging'}
+            {packagingText}
           </span>
         </div>
 
