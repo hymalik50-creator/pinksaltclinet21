@@ -18,7 +18,9 @@ export function FeaturedProducts() {
 
   // Fall back to mock data when API is unavailable (frontend-only mode)
   const fallback = mockProducts.filter((p) => p.featured).slice(0, 4);
-  const apiItems = data?.items;
+  
+  // API returns { data: [...products...], pagination: {...} }
+  const apiItems = data?.data || [];
   const items: Product[] =
     !isLoading && Array.isArray(apiItems) && apiItems.length > 0
       ? apiItems
