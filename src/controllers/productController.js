@@ -15,10 +15,15 @@ class ProductController {
         page = 1,
         pageSize = config.pagination.defaultPageSize,
         categoryId,
+        category,
         isFeatured,
+        featured,
         search,
         sortBy,
         sortOrder,
+        sort,
+        availability,
+        packaging,
       } = req.query;
 
       const limit = Math.min(
@@ -29,11 +34,13 @@ class ProductController {
       const filters = {
         isPublished: true,
         limit: limit + 1, // Get one extra to check if there's next page
-        categoryId,
-        isFeatured: isFeatured ? isFeatured === 'true' : undefined,
+        categoryId: categoryId || category,
+        isFeatured: featured ? featured === 'true' : (isFeatured ? isFeatured === 'true' : undefined),
         search,
-        sortBy,
+        sortBy: sortBy || sort,
         sortOrder,
+        availability,
+        packaging,
       };
 
       const products = await productService.getAllProducts(filters);
