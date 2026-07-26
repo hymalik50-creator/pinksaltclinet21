@@ -130,11 +130,9 @@ function ProductsContent() {
     isLoading,
     hasError: !!error,
     error: error?.message,
-    errorDetails: error,
     hasData: !!data,
     dataStructure: data,
     itemsCount: data?.items?.length || data?.data?.length || 0,
-    apiUrl: process.env.NEXT_PUBLIC_API_BASE_URL,
   });
 
   // Backend returns: { success, data: [...], pagination } OR { items: [...] }
