@@ -15,8 +15,8 @@ export function CategoryShowcase() {
     retry: 1,
   });
 
-  // Backend returns: { success, data: [...] }
-  const categories: Category[] = data?.data || [];
+  // API now returns the categories array directly (not wrapped in { data: [] })
+  const categories: Category[] = Array.isArray(data) ? data : [];
   
   // Filter only published categories
   const publishedCategories = categories.filter(cat => cat.isPublished !== false);
