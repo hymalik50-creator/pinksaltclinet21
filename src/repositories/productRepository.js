@@ -87,8 +87,47 @@ class ProductRepository {
         const searchLower = filters.search.toLowerCase();
         products = products.filter(product =>
           product.name.toLowerCase().includes(searchLower) ||
-          (product.shortDescription && product.shortDescription.toLowerCase().includes(searchLower))
+          (product.shortDescription && product.shortDescription.toLowerCase().includes(searchLower)) ||
+          (product.description && product.description.toLowerCase().includes(searchLower)) ||
+          (product.category && product.category.toLowerCase().includes(searchLower)) ||
+          (product.usage && product.usage.toLowerCase().includes(searchLower))
         );
+      }
+
+      // Apply category filter if not already filtered by categoryId query
+      // This handles category slug filtering (e.g., "bath-spa", "edible-salt")
+      if (filters.category && !filters.categoryId) {
+        const categorySlug = filters.category.toLowerCase();
+        products = products.filter(product => {
+          // Check if product has category field (string) matching the slug
+          if (product.category) {
+            const productCategorySlug = product.category.toLowerCase().replace(/\s+/g, '-');
+            return productCategorySlug === categorySlug || product.category.toLowerCase().includes(categorySlug);
+          }
+          return false;
+        });
+      }
+
+      // Apply availability filter (client-side)
+      if (filters.availability) {
+        products = products.filter(product => {
+          // Handle both string and boolean availability
+          const productAvailability = typeof product.availability === 'string' 
+            ? product.availability 
+            : (product.availability === true ? 'in-stock' : 'out-of-stock');
+          return productAvailability === filters.availability;
+        });
+      }
+
+      // Apply packaging filter (client-side)
+      if (filters.packaging) {
+        const packagingFilters = filters.packaging.split(',').map(p => p.trim().toLowerCase());
+        products = products.filter(product => {
+          if (!product.packaging || !Array.isArray(product.packaging)) return false;
+          return packagingFilters.some(filter => 
+            product.packaging.some(pkg => pkg.toLowerCase().includes(filter))
+          );
+        });
       }
 
       // Apply limit after sorting if we sorted in memory
